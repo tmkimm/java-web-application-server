@@ -1,12 +1,15 @@
 package webserver;
 
 import java.io.*;
+import java.lang.reflect.Array;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 
+import jdk.internal.util.xml.impl.Input;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import util.IOUtils;
 
 public class RequestHandler extends Thread {
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
@@ -18,21 +21,11 @@ public class RequestHandler extends Thread {
     }
 
     public void run() {
-
         try (InputStream in = connection.getInputStream(); OutputStream out = connection.getOutputStream()) {
-            BufferedReader br = new BufferedReader((new InputStreamReader(in)));
-            String line;
-            ArrayList<String> requests = new ArrayList<String>();
-            while(true) {
-                line = br.readLine();
-                if(line == null || line.isEmpty())
-                    break;
-                requests.add(line);
-            }
-            log.debug("New Client Request! Url : {}", requests.get(0));
-            int firstBlank = requests.get(0).indexOf(" ") + 1;
-            String url = requests.get(0).substring(firstBlank, requests.get(0).indexOf(" ", firstBlank));
+            ArrayList<String> requests = toHttpRequest(in);
+            String url = findUrl(requests.get(0));
 
+            // 컨트롤러로 refactoring
             DataOutputStream dos = new DataOutputStream(out);
             String contentType = "text/html";
             byte[] body;
@@ -46,21 +39,33 @@ public class RequestHandler extends Thread {
             }
             response200Header(dos, body.length, contentType);
             responseBody(dos, body);
-            // InputStream 첫라인 읽어서 컨트롤러 만들기
-            // favicon.ico 제외
-
-            // 서빙하도록
-            // GET /index.html?id=1234 HTTP/1.1
-            // GET / HTTP/1.1
-
-            // 첫 스페이스 찾아서 GET
-            // /뒤에 문자열 잘라서 경로
-
         } catch (IOException e) {
             log.error(e.getMessage());
         }
     }
-
+    public ArrayList<String> toHttpRequest(InputStream in) {
+        ArrayList<String> requests = new ArrayList<String>();
+        try {
+            BufferedReader br = new BufferedReader((new InputStreamReader(in)));
+            String line;
+            while(true) {
+                line = br.readLine();
+                log.debug(line);
+                if((line == null || line.isEmpty()))
+                    break;
+                requests.add(line);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        log.debug("New Request >>  Url : {}", requests.get(0));
+        return requests;
+    }
+    public String findUrl(String text) {
+        int firstBlank = text.indexOf(" ") + 1;
+        String url = text.substring(firstBlank, text.indexOf(" ", firstBlank));
+        return url;
+    }
     private void response200Header(DataOutputStream dos, int lengthOfBodyContent, String contentType) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
