@@ -5,8 +5,10 @@ import java.lang.reflect.Array;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 import jdk.internal.util.xml.impl.Input;
+import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.IOUtils;
@@ -23,8 +25,14 @@ public class RequestHandler extends Thread {
     public void run() {
         try (InputStream in = connection.getInputStream(); OutputStream out = connection.getOutputStream()) {
             ArrayList<String> requests = toHttpRequest(in);
-            String url = findUrl(requests.get(0));
-
+            String url = getUrl(requests.get(0));
+            User user = null;
+            // 쿼리 파라미터 파싱
+            HashMap<String, String> queryParams = new HashMap<>();
+            if(url.indexOf("?") != -1) {
+                queryParams = getQueryParams(url.substring(url.indexOf("?") + 1));
+                log.debug("query parm:"+queryParams);
+            }
             // 컨트롤러로 refactoring
             DataOutputStream dos = new DataOutputStream(out);
             String contentType = "text/html";
@@ -34,9 +42,18 @@ public class RequestHandler extends Thread {
             } else if(url.indexOf(".css") != -1) {
                 body = Files.readAllBytes(new File("./webapp"+ url).toPath());
                 contentType = "text/css";
+            } else if(url.indexOf("/user/create") != -1) {
+                body = "create success!".getBytes();
+                user = new User(queryParams.get("userId"), queryParams.get("password"), queryParams.get("name"), queryParams.get("email"));
+                log.debug(user.toString());
+            } else if(url.indexOf("/user/login") != -1) {
+                body = "login page".getBytes();
+                if(user != null)
+                    log.debug(user.toString());
             }else {
                 body = "Hello World".getBytes();
             }
+
             response200Header(dos, body.length, contentType);
             responseBody(dos, body);
         } catch (IOException e) {
@@ -50,7 +67,6 @@ public class RequestHandler extends Thread {
             String line;
             while(true) {
                 line = br.readLine();
-                log.debug(line);
                 if((line == null || line.isEmpty()))
                     break;
                 requests.add(line);
@@ -61,11 +77,24 @@ public class RequestHandler extends Thread {
         log.debug("New Request >>  Url : {}", requests.get(0));
         return requests;
     }
-    public String findUrl(String text) {
+    public String getUrl(String text) {
         int firstBlank = text.indexOf(" ") + 1;
         String url = text.substring(firstBlank, text.indexOf(" ", firstBlank));
         return url;
     }
+
+    public HashMap<String, String> getQueryParams(String url) {
+        HashMap<String, String> queryParams = new HashMap<>();
+        String[] splitArr = url.split("&");
+        String[] item;
+        for(String v: splitArr) {
+            item = v.split("=");
+            if(item.length >= 1)
+                queryParams.put(item[0], item[1]);
+        }
+        return queryParams;
+    }
+
     private void response200Header(DataOutputStream dos, int lengthOfBodyContent, String contentType) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
