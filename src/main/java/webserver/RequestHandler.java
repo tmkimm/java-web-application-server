@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.sun.org.apache.xpath.internal.operations.Bool;
 import jdk.internal.util.xml.impl.Input;
 import model.User;
 import org.slf4j.Logger;
@@ -31,36 +32,51 @@ public class RequestHandler extends Thread {
             HashMap<String, String> requests = toHttpRequestHashMap(in);
 
             DataOutputStream dos = new DataOutputStream(out);
-            String contentType = "text/html";
             String url = requests.get("URL");
             byte[] body;
-
-            if(url.startsWith("GET /user/create")) {   // GET 방식 회원가입
-                body = "create success!".getBytes();
-                HashMap<String, String> queryParams = getQueryParams(url);  // 쿼리 파라미터 파싱
-                User user = new User(queryParams.get("userId"), queryParams.get("password"), queryParams.get("name"), queryParams.get("email"));
-                store.put(queryParams.get("userId"), user);
-            }
-            else if(url.startsWith("POST /user/create")) { // POST 방식 회원가입
-                body = "create success!".getBytes();
+            log.debug("Request : {}", url);
+            if(url.startsWith("POST /user/create")) { // POST 방식 회원가입
                 Map<String, String> bodyMap = HttpRequestUtils.parseQueryString(requests.get("Body"));
                 User user = new User(bodyMap.get("userId"), bodyMap.get("password"), bodyMap.get("name"), bodyMap.get("email"));
                 store.put(bodyMap.get("userId"), user);
+                response302(dos, "/index.html", false);
             }
-            else if(url.startsWith("GET /user/login")) { // 로그인
-                body = "login page".getBytes();
-                log.debug(store.toString());
+            else if(url.startsWith("POST /user/login")) { // 로그인
+                Map<String, String> bodyMap = HttpRequestUtils.parseQueryString(requests.get("Body"));
+                // 아이디가 존재하고 비밀번호가 일치하면
+                if(store.containsKey(bodyMap.get("userId")) && store.get(bodyMap.get("userId")).getPassword().equals(bodyMap.get("password"))) {
+                    response302(dos, "/index.html", true);
+                } else {
+                    response302(dos, "/user/login_failed.html", false);
+                }
+            }
+            else if(url.startsWith("GET /user/list.html")) {
+                Map<String, String> cookies = HttpRequestUtils.parseCookies(requests.get("Cookie"));
+                if(cookies.containsKey("logined") && Boolean.parseBoolean(cookies.get("logined"))) {
+                    StringBuilder userList = new StringBuilder();
+                    store.forEach((key, user)-> {
+                        userList.append("<p>" + user.getUserId() + "</p><br>");
+                    });
+                    body = userList.toString().getBytes();
+                    response200Header(dos, body.length, "text/html");
+                    responseBody(dos, body);
+                } else {
+                    response302(dos, "/user/login.html", false);
+                }
             }
             else if(url.indexOf(".html") != -1) {
                 body = Files.readAllBytes(new File("./webapp"+ parseUrl(url)).toPath());
+                response200Header(dos, body.length, "text/html");
+                responseBody(dos, body);
             } else if(url.indexOf(".css") != -1) {
                 body = Files.readAllBytes(new File("./webapp"+ parseUrl(url)).toPath());
-                contentType = "text/css";
+                response200Header(dos, body.length, "text/css");
+                responseBody(dos, body);
             } else {
                 body = "Hello World".getBytes();
+                response200Header(dos, body.length, "text/html");
+                responseBody(dos, body);
             }
-            response200Header(dos, body.length, contentType);
-            responseBody(dos, body);
         } catch (IOException e) {
             log.error(e.getMessage());
         }
@@ -99,27 +115,24 @@ public class RequestHandler extends Thread {
         String url = text.substring(firstBlank, text.indexOf(" ", firstBlank));
         return url;
     }
-    public HashMap<String, String> getQueryParams(String url) {
-        if(url.indexOf("?") == -1) {
-            return null;
-        }
-        HashMap<String, String> queryParams = new HashMap<>();
-        String[] splitArr = url.substring(url.indexOf("?") + 1).split("&");
-        String[] item;
-        for(String v: splitArr) {
-            item = v.split("=");
-            if(item.length >= 1)
-                queryParams.put(item[0], item[1]);
-        }
-        return queryParams;
-    }
-
     private void response200Header(DataOutputStream dos, int lengthOfBodyContent, String contentType) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
             dos.writeBytes("Content-Type: " + contentType + ";charset=utf-8\r\n");
             dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
             dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+    private void response302(DataOutputStream dos, String url, Boolean isCookie) {
+        try {
+            dos.writeBytes("HTTP/1.1 302 OK \r\n");
+            dos.writeBytes("Location: " + url + "\r\n");
+            if(isCookie)
+                dos.writeBytes("Set-Cookie: logined=true; \r\n");    // Set Cookie
+            dos.writeBytes("\r\n");
+            dos.flush();
         } catch (IOException e) {
             log.error(e.getMessage());
         }
