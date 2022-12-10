@@ -5,10 +5,12 @@ import java.lang.reflect.Array;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
 import com.sun.org.apache.xpath.internal.operations.Bool;
+import db.DataBase;
 import jdk.internal.util.xml.impl.Input;
 import model.User;
 import org.slf4j.Logger;
@@ -17,11 +19,12 @@ import repository.MemoryUserRepository;
 import util.HttpRequestUtils;
 import util.IOUtils;
 
+import javax.xml.crypto.Data;
+
 public class RequestHandler extends Thread {
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
 
     private Socket connection;
-    private static HashMap<String, User> store = new HashMap<String, User>();
 
     public RequestHandler(Socket connectionSocket) {
         this.connection = connectionSocket;
@@ -31,48 +34,43 @@ public class RequestHandler extends Thread {
         try (InputStream in = connection.getInputStream(); OutputStream out = connection.getOutputStream()) {
             HashMap<String, String> requests = toHttpRequestHashMap(in);
 
-            DataOutputStream dos = new DataOutputStream(out);
             String url = requests.get("URL");
             byte[] body;
-            log.debug("Request : {}", url);
+            log.debug("New Request : {}", url);
             if(url.startsWith("POST /user/create")) { // POST 방식 회원가입
                 Map<String, String> bodyMap = HttpRequestUtils.parseQueryString(requests.get("Body"));
                 User user = new User(bodyMap.get("userId"), bodyMap.get("password"), bodyMap.get("name"), bodyMap.get("email"));
-                store.put(bodyMap.get("userId"), user);
-                response302(dos, "/index.html", false);
+                DataBase.addUser(user);
+                DataOutputStream dos = new DataOutputStream(out);
+                response302Header(dos);
             }
             else if(url.startsWith("POST /user/login")) { // 로그인
                 Map<String, String> bodyMap = HttpRequestUtils.parseQueryString(requests.get("Body"));
                 // 아이디가 존재하고 비밀번호가 일치하면
-                if(store.containsKey(bodyMap.get("userId")) && store.get(bodyMap.get("userId")).getPassword().equals(bodyMap.get("password"))) {
-                    response302(dos, "/index.html", true);
+                User user = DataBase.findUserById(bodyMap.get("userId"));
+                if(user != null && user.getPassword().equals(bodyMap.get("password"))) {
+                    DataOutputStream dos = new DataOutputStream(out);
+                    response302LoginSuccessHeader(dos);
                 } else {
-                    response302(dos, "/user/login_failed.html", false);
+                    responseResource(out, "/user/login_failed.html");
                 }
             }
-            else if(url.startsWith("GET /user/list.html")) {
+            else if(url.startsWith("GET /user/list.html")) {    // 사용자 리스트
                 Map<String, String> cookies = HttpRequestUtils.parseCookies(requests.get("Cookie"));
                 if(cookies.containsKey("logined") && Boolean.parseBoolean(cookies.get("logined"))) {
-                    StringBuilder userList = new StringBuilder();
-                    store.forEach((key, user)-> {
-                        userList.append("<p>" + user.getUserId() + "</p><br>");
-                    });
-                    body = userList.toString().getBytes();
+                    DataOutputStream dos = new DataOutputStream(out);
+                    Collection<User> users =  DataBase.findAll();
+                    body = users.toString().getBytes();
                     response200Header(dos, body.length, "text/html");
                     responseBody(dos, body);
                 } else {
-                    response302(dos, "/user/login.html", false);
+                    responseResource(out, "/user/login.html");
                 }
             }
-            else if(url.indexOf(".html") != -1) {
-                body = Files.readAllBytes(new File("./webapp"+ parseUrl(url)).toPath());
-                response200Header(dos, body.length, "text/html");
-                responseBody(dos, body);
-            } else if(url.indexOf(".css") != -1) {
-                body = Files.readAllBytes(new File("./webapp"+ parseUrl(url)).toPath());
-                response200Header(dos, body.length, "text/css");
-                responseBody(dos, body);
+            else if(url.indexOf(".html") != -1 || url.indexOf(".css") != -1) {
+                responseResource(out, parseUrl(url));
             } else {
+                DataOutputStream dos = new DataOutputStream(out);
                 body = "Hello World".getBytes();
                 response200Header(dos, body.length, "text/html");
                 responseBody(dos, body);
@@ -115,24 +113,49 @@ public class RequestHandler extends Thread {
         String url = text.substring(firstBlank, text.indexOf(" ", firstBlank));
         return url;
     }
+    // 로그인 성공 response
+    private void response302Header(DataOutputStream dos) {
+        try {
+            dos.writeBytes("HTTP/1.1 302 OK \r\n");
+            dos.writeBytes("Location: /index.html \r\n");
+            dos.writeBytes("Set-Cookie: logined=true; \r\n");    // Set Cookie
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+    private void response302LoginSuccessHeader(DataOutputStream dos) {
+        try {
+            dos.writeBytes("HTTP/1.1 302 OK \r\n");
+            dos.writeBytes("Location: /index.html \r\n");
+            dos.writeBytes("Set-Cookie: logined=true; \r\n");    // Set Cookie
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    // Resource response
+    private void responseResource(OutputStream out, String url) {
+        try {
+            DataOutputStream dos = new DataOutputStream(out);
+            if(url.indexOf(".css") != -1) {
+                log.debug("css file path : {}", "./webapp"+url);
+            }
+            byte[] body = Files.readAllBytes(new File("./webapp"+ url).toPath());
+            response200Header(dos, body.length, url.indexOf(".css") != -1 ? "text/css" : "text/html");
+            responseBody(dos, body);
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
     private void response200Header(DataOutputStream dos, int lengthOfBodyContent, String contentType) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
             dos.writeBytes("Content-Type: " + contentType + ";charset=utf-8\r\n");
             dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
             dos.writeBytes("\r\n");
-        } catch (IOException e) {
-            log.error(e.getMessage());
-        }
-    }
-    private void response302(DataOutputStream dos, String url, Boolean isCookie) {
-        try {
-            dos.writeBytes("HTTP/1.1 302 OK \r\n");
-            dos.writeBytes("Location: " + url + "\r\n");
-            if(isCookie)
-                dos.writeBytes("Set-Cookie: logined=true; \r\n");    // Set Cookie
-            dos.writeBytes("\r\n");
-            dos.flush();
         } catch (IOException e) {
             log.error(e.getMessage());
         }
