@@ -9,22 +9,16 @@ import webserver.HttpResponse;
 import java.util.Collection;
 import java.util.Map;
 
-public class ListUserController extends AbstractController{
-    @Override
+public class ListUserController implements Controller{
     public void service(HttpRequest request, HttpResponse response) {
-        super.service(request, response);
-    }
-
-    @Override
-    public void doGet(HttpRequest request, HttpResponse response) {
-        Map<String, String> header = request.getHeaders();
-        if(isLogin(header.get("Cookie"))) {
+        if(isLogin(request.getParameter("Cookie"))) {
             Collection<User> users =  DataBase.findAll();
             response.forwardBody(users.toString());
         } else {
             response.forward("/user/login.html");
         }
     }
+
 
     public boolean isLogin(String cookie) {
         Map<String, String> cookies = HttpRequestUtils.parseCookies(cookie);
