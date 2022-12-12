@@ -8,11 +8,16 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 // 응답 데이터를 갖고있는 클래스
 public class HttpResponse {
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
     DataOutputStream dos;
+    private Map<String, String> headers = new HashMap<String, String>();
+
 
     public HttpResponse(OutputStream out) {
         dos = new DataOutputStream(out);
@@ -20,11 +25,7 @@ public class HttpResponse {
 
     // 헤더 추가
     public void addHeader(String key, String value) {
-        try {
-            dos.writeBytes(key + ": " + value + "; \r\n");
-        } catch (IOException e) {
-            log.error(e.getMessage());
-        }
+        headers.put(key, value);
     }
 
     // HTML, CSS, JS 파일 읽기
@@ -48,6 +49,7 @@ public class HttpResponse {
     public void sendRedirect(String url) {
         try {
             dos.writeBytes("HTTP/1.1 302 OK \r\n");
+            processHeaders();
             dos.writeBytes("Location: " + url + " \r\n");
             dos.writeBytes("\r\n");
         } catch (IOException e) {
@@ -58,6 +60,7 @@ public class HttpResponse {
     public void response200Header(DataOutputStream dos, int lengthOfBodyContent, String contentType) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
+            processHeaders();
             dos.writeBytes("Content-Type: " + contentType + ";charset=utf-8\r\n");
             dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
             dos.writeBytes("\r\n");
@@ -70,6 +73,17 @@ public class HttpResponse {
         try {
             dos.write(body, 0, body.length);
             dos.flush();
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void processHeaders() {
+        try {
+            Set<String> keys = headers.keySet();
+            for (String key : keys) {
+                dos.writeBytes(key + ": " + headers.get(key) + " \r\n");
+            }
         } catch (IOException e) {
             log.error(e.getMessage());
         }
