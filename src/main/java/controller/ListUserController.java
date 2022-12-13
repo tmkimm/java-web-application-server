@@ -19,7 +19,7 @@ public class ListUserController implements Controller{
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
     public void service(HttpRequest request, HttpResponse response) {
 
-        if(isLogin(request.getHeaders().get("Cookie"))) {
+        if(isLogin(request.getSession())) {
             Collection<User> users =  DataBase.findAll();
             response.forwardBody(users.toString());
         } else {
@@ -27,12 +27,9 @@ public class ListUserController implements Controller{
         }
     }
 
-    public boolean isLogin(String cookie) {
-        Map<String, String> cookies = HttpRequestUtils.parseCookies(cookie);
-        if(!cookies.containsKey("uuid"))
-            return false;
-        HttpSession session = HttpSessions.getSession(UUID.fromString(cookies.get("uuid")));
-        if(session == null || (Boolean) session.getAttributes("isLogin") != true)
+    public boolean isLogin(HttpSession session) {
+        Object user = session.getAttributes("user");
+        if(user == null)
             return false;
 
         return true;

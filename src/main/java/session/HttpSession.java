@@ -5,15 +5,15 @@ import java.util.Map;
 import java.util.UUID;
 
 public class HttpSession {
-    private UUID id;
+    private String id;
     private Map<String, Object> attributes = new HashMap<>();
 
-    public HttpSession() {
-        this.id = UUID.randomUUID();
+    public HttpSession(String id) {
+        this.id = id;
     }
 
-    public UUID getId() {
-        return this.id;
+    public String getId() {
+        return id;
     }
 
     public Object getAttributes(String key) {
