@@ -2,6 +2,8 @@ package webserver;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import session.HttpSession;
+import session.HttpSessions;
 import util.HttpRequestUtils;
 import util.IOUtils;
 
@@ -37,6 +39,14 @@ public class HttpRequest {
 
     public String getParameter(String key) {
         return params.get(key);
+    }
+
+    public HttpCookie getCookies() {
+        return new HttpCookie(getHeaders().get("Cookie"));
+    }
+
+    public HttpSession getSession() {
+        return HttpSessions.getSession(getCookies().getCookie("uuid"));
     }
 
     public HttpRequest(InputStream in) {
